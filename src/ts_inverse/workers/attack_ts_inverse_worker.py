@@ -282,7 +282,7 @@ class AttackTSInverseWorker(AttackLearningToInvertWorker):
                 dummy_targets, regularization_targets
             )
         else:
-            raise NotImplementedError(f"Inversion regularization loss not found: {config["inversion_regularization_loss"]}")
+            raise NotImplementedError(f"Inversion regularization loss not found: {config['inversion_regularization_loss']}")
         return learned_prior_regularization
 
     def initialize_inversion_model(self, config, batch_inputs, batch_targets):
@@ -417,7 +417,7 @@ class AttackTSInverseWorker(AttackLearningToInvertWorker):
                     }
                     attack_metrics.update(individual_evaluation)
 
-                if epoch % (config["num_learn_epochs"] // 10) == 0:
+                if epoch % max(1, config["num_learn_epochs"] // 10) == 0:
                     quantile_df, fig = plot_quantile_dummy_data(
                         config, sample_mapping, dummy_inputs, dummy_targets, batch_inputs, batch_targets
                     )

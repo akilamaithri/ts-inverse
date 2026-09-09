@@ -5,8 +5,8 @@ import flwr as fl
 from collections import OrderedDict
 import warnings
 
-import datahandler
-import utils
+from ts_inverse import datahandler
+from ts_inverse import utils
 
 warnings.filterwarnings("ignore")
 

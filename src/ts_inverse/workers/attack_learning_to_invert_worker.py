@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, ConcatDataset, TensorDataset
+from torch.utils.data import DataLoader, ConcatDataset, Subset, TensorDataset
 
 from ts_inverse.attack_time_series_utils import interpolate
 from ts_inverse.models.grad_to_input import ImprovedGradToInputNN, ImprovedGradToInputNN_2
@@ -34,8 +34,8 @@ class AttackLearningToInvertWorker(AttackBaselineWorker):
 
         if "aux_dataset" in config and config["aux_dataset"] is not None:
             aux_dataset_config = config["aux_dataset"]
-            aux_trainset_path = f"../data/_aux_datasets/train_{aux_dataset_config['dataset']}_{len(aux_dataset_config['columns'])}_{aux_dataset_config['train_stride']}_{aux_dataset_config['observation_days']}_{aux_dataset_config['future_days']}_{aux_dataset_config['normalize']}.pt"
-            aux_valset_path = f"../data/_aux_datasets/val_{aux_dataset_config['dataset']}_{len(aux_dataset_config['columns'])}_{aux_dataset_config['train_stride']}_{aux_dataset_config['observation_days']}_{aux_dataset_config['future_days']}_{aux_dataset_config['normalize']}.pt"
+            aux_trainset_path = f"{os.environ.get('TS_INVERSE_DATA_DIR', '../data')}/_aux_datasets/train_{aux_dataset_config['dataset']}_{len(aux_dataset_config['columns'])}_{aux_dataset_config['train_stride']}_{aux_dataset_config['observation_days']}_{aux_dataset_config['future_days']}_{aux_dataset_config['normalize']}.pt"
+            aux_valset_path = f"{os.environ.get('TS_INVERSE_DATA_DIR', '../data')}/_aux_datasets/val_{aux_dataset_config['dataset']}_{len(aux_dataset_config['columns'])}_{aux_dataset_config['train_stride']}_{aux_dataset_config['observation_days']}_{aux_dataset_config['future_days']}_{aux_dataset_config['normalize']}.pt"
             if os.path.exists(aux_trainset_path) and os.path.exists(aux_valset_path):
                 aux_trainset = torch.load(aux_trainset_path)
                 aux_valset = torch.load(aux_valset_path)
@@ -48,6 +48,15 @@ class AttackLearningToInvertWorker(AttackBaselineWorker):
         else:
             aux_trainset = ConcatDataset(self.test_datasets)
             aux_valset = ConcatDataset(self.val_datasets)
+
+        # Optional cap on the auxiliary set. The gradient-inversion dataset stores one
+        # full model gradient per sample, so for large victim models (TCN/CNN: ~180k
+        # params) the cache is many GB. Capping trades prior quality for memory and is
+        # only intended for memory-constrained previews; leave unset to match the paper.
+        aux_max_samples = config.get("aux_max_samples")
+        if aux_max_samples:
+            aux_trainset = Subset(aux_trainset, range(min(len(aux_trainset), int(aux_max_samples))))
+            aux_valset = Subset(aux_valset, range(min(len(aux_valset), int(aux_max_samples))))
 
         # Prior knowledge datasets
         self.auxiliary_train_dataloader = DataLoader(
@@ -130,7 +139,7 @@ class AttackLearningToInvertWorker(AttackBaselineWorker):
 
             return "_".join(path_components) + ".pt"
 
-        folder_path = "../data/_model_dataset_gradients/"
+        folder_path = os.path.join(os.environ.get("TS_INVERSE_DATA_DIR", "../data"), "_model_dataset_gradients") + "/"
         model_path = generate_model_path(config, folder_path, batch_number, model, aux_gi_t_dataloader)
         if os.path.exists(model_path) and config["load_lti_model"]:
             inversion_model.load_state_dict(torch.load(model_path))
@@ -325,7 +334,7 @@ def create_gradient_inversion_dataloader(
 ):
     model.to(config["device"])
 
-    folder_path = "../data/_model_dataset_gradients/"
+    folder_path = os.path.join(os.environ.get("TS_INVERSE_DATA_DIR", "../data"), "_model_dataset_gradients") + "/"
     # Path where the dataset will be saved or loaded from
     dataset_path = f"{folder_path}grad_inputs_targets_dataset_{config['defense_name']}_{batch_number}_{model.name}_{'-'.join(map(str, model.features))}_{config['dataset']}_{len(aux_dataloader.dataset)}_{config['input_size']}_{config['output_size']}_{config['seed']}_{config['inversion_batch_size']}.pt"
 

@@ -5,6 +5,7 @@ import pandas as pd
 import wandb
 import os
 from ts_inverse.datahandler import TimeSeriesDataSet, get_datasets
+from ts_inverse.local_logger import LocalLogger
 
 
 class Worker:
@@ -24,6 +25,8 @@ class Worker:
         tags.extend([config["experiment_name"], config["dataset"], config["model"]])
         self.logger_object_dict = {}
 
+        if "local" in config["logger_service"]:
+            self.logger_object_dict["local"] = LocalLogger(name, config)
         if "wandb" in config["logger_service"]:
             settings = wandb.Settings(disable_job_creation=True)
             wandb.init(
@@ -74,11 +77,15 @@ class Worker:
             self.logger_object_dict["clear_ml"] = task
 
     def _update_config(self, config):
+        if "local" in self.logger_object_dict.keys():
+            self.logger_object_dict["local"].write_config(config)
         if "wandb" in self.logger_object_dict.keys():
             run_config = wandb.run.config
             run_config.update(config)
 
     def _log_dataframe(self, df, step, log_name=""):
+        if "local" in self.logger_object_dict.keys():
+            self.logger_object_dict["local"].log_dataframe(df, step, log_name)
         if "wandb" in self.logger_object_dict.keys():
             wandb.log({f"dataframe{log_name}": wandb.Table(dataframe=df), "custom_step": step})
         if "comet_ml" in self.logger_object_dict.keys():
@@ -95,6 +102,8 @@ class Worker:
             )
 
     def _log_matplotlib_figure(self, fig, step, log_name="", matplotlib_only=False):
+        if "local" in self.logger_object_dict.keys():
+            self.logger_object_dict["local"].log_figure(fig, step, log_name)
         if "wandb" in self.logger_object_dict.keys():
             if matplotlib_only:
                 wandb.log({f"figure_matplotlib{log_name}": wandb.Image(fig), "custom_step": step})
@@ -117,6 +126,8 @@ class Worker:
         plt.close(fig)
 
     def _log_metrics(self, metrics_dict, step):
+        if "local" in self.logger_object_dict.keys():
+            self.logger_object_dict["local"].log_metrics(metrics_dict, step)
         if "wandb" in self.logger_object_dict.keys():
             wandb.log({**metrics_dict, "custom_step": step})
         if "comet_ml" in self.logger_object_dict.keys():
@@ -144,6 +155,8 @@ class Worker:
                         print("Unknown type: for key", key, ":", type(value), ":", value)
 
     def _end_logger_object(self):
+        if "local" in self.logger_object_dict.keys():
+            self.logger_object_dict["local"].finish()
         if "wandb" in self.logger_object_dict.keys():
             wandb.finish()
         if "comet_ml" in self.logger_object_dict.keys():

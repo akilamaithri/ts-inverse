@@ -103,7 +103,7 @@ class AttackBaselineWorker(AttackWorker):
                 model, config, batch_number, original_dy_dx, dummy_inputs, dummy_targets, batch_inputs, batch_targets
             )
 
-        if config["device"] != "cpu":
+        if torch.cuda.is_available() and "cuda" in str(config["device"]):
             torch.cuda.empty_cache()
 
         model.eval()
