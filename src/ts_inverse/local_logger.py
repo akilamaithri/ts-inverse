@@ -52,7 +52,12 @@ class LocalLogger:
             json.dump(_jsonable(dict(config)), f, indent=2, sort_keys=True)
 
     def log_metrics(self, metrics_dict, step):
-        record = {"step": int(step)}
+        # "_t" is seconds since the logger was constructed. It costs nothing and
+        # it is the only per-phase timing this harness has: the gap from 0 to the
+        # first record is the gradient-cache build, and the gaps between records
+        # are the per-epoch (or per-attack-step) cost. Sizing a job needs both
+        # separately, because only the second scales with the epoch count.
+        record = {"step": int(step), "_t": round(time.time() - self.started_at, 3)}
         for key, value in metrics_dict.items():
             record[key] = _jsonable(value)
             if isinstance(value, (int, float, np.floating, np.integer)) and not isinstance(value, bool):

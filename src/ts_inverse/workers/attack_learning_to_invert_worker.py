@@ -332,7 +332,15 @@ class AttackLearningToInvertWorker(AttackBaselineWorker):
 def create_gradient_inversion_dataloader(
     aux_dataloader, model, config, batch_number, dummy_inputs, dummy_targets, seed_generator=None
 ):
-    model.to(config["device"])
+    # Building this cache is a different workload from training on it: one
+    # forward+backward of a ~180k-parameter victim per auxiliary sample, at batch
+    # size 1. That is kernel-launch bound, so it is faster on CPU even when the
+    # inversion-model training that follows belongs on a GPU. "cache_device" lets
+    # the two be chosen independently; unset, it is config["device"] and nothing
+    # changes. The cached tensors are stored on CPU either way, so the cache file
+    # is interchangeable between the two settings.
+    cache_device = config.get("cache_device") or config["device"]
+    model.to(cache_device)
 
     folder_path = os.path.join(os.environ.get("TS_INVERSE_DATA_DIR", "../data"), "_model_dataset_gradients") + "/"
     # Path where the dataset will be saved or loaded from
@@ -349,8 +357,8 @@ def create_gradient_inversion_dataloader(
         aux_dy_dx_inputs, aux_inputs_targets, aux_targets_targets = [], [], []
         for i, (aux_batch_inputs, aux_batch_targets) in enumerate(aux_dataloader):
             aux_batch_inputs, aux_batch_targets = (
-                aux_batch_inputs[:, :, model.features].to(config["device"]),
-                aux_batch_targets[:, :, 0].to(config["device"]),
+                aux_batch_inputs[:, :, model.features].to(cache_device),
+                aux_batch_targets[:, :, 0].to(cache_device),
             )
 
             if aux_batch_inputs.shape[1] != dummy_inputs.shape[1]:
@@ -398,6 +406,8 @@ def create_gradient_inversion_dataloader(
             os.makedirs(folder_path)
 
         torch.save(grad_inputs_targets_dataset, dataset_path)
+
+    model.to(config["device"])
 
     if seed_generator is not None:
         return grad_inputs_targets_dataset, DataLoader(
