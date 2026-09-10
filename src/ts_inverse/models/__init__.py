@@ -4,6 +4,7 @@ from .lstm import LSTM_Predictor, StackedLSTM_Predictor, CNNLSTM_Predictor
 from .gru import GRU_Predictor, StackedGRU_Predictor, CNNGRU_Predictor
 from .jit_gru import JitGRU_Predictor, CNNJitGRU_Predictor, JitSeq2Seq_Predictor
 from .tcn import TCN_Predictor
+from .patchtst import PatchTST_Predictor
 from .grad_to_input import (
     GradToInputNN,
     ImprovedGradToInputNN,
@@ -44,6 +45,7 @@ model_classes = {
     CNN_Predictor.name: CNN_Predictor,
     FCN_Predictor.name: FCN_Predictor,
     TCN_Predictor.name: TCN_Predictor,
+    PatchTST_Predictor.name: PatchTST_Predictor,
 }
 
 
