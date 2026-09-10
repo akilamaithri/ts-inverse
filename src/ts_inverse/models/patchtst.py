@@ -34,6 +34,8 @@ Everything else -- patch_len/stride, learnable positional encoding, three encode
 layers, d_ff = 2*d_model, residual attention, GELU, flatten head -- is upstream's.
 """
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -180,7 +182,7 @@ class PatchTST_Predictor(nn.Module):
 
     def __init__(self, features=[0], hidden_size=64, input_size=24 * 4, output_size=24 * 4,
                  patch_len=16, stride=8, e_layers=3, n_heads=8, d_ff=None,
-                 dropout=0.0, activation="gelu", pad_end=True):
+                 dropout=0.0, activation="gelu", pad_end=True, learn_pe=True):
         super().__init__()
         self.features = features
         d_model = hidden_size
@@ -198,10 +200,38 @@ class PatchTST_Predictor(nn.Module):
         self.patch_num = patch_num
 
         self.W_P = nn.Linear(patch_len, d_model)
-        # upstream positional_encoding(pe='zeros', learn_pe=True, ...)
-        W_pos = torch.empty(patch_num, d_model)
-        nn.init.uniform_(W_pos, -0.02, 0.02)
-        self.W_pos = nn.Parameter(W_pos, requires_grad=True)
+
+        # THE POSITIONAL ENCODING IS A MEASURED LEAK PATH, NOT A DETAIL.
+        #
+        # W_pos is (patch_num, d_model) and row i is added to patch i alone, so
+        # dL/dW_pos[i] is that patch's own upstream gradient -- never summed with
+        # the others. Measured: rank exactly N with all N rows non-zero, at every
+        # patch length. So while W_P aggregates the patches, a *learnable* W_pos
+        # hands the per-patch signal straight back, and the aggregation protects
+        # nothing. The first light grid confirmed the consequence: reconstruction
+        # is ~3e-06 at every patch length, flat, FCN-like.
+        #
+        # learn_pe=False swaps in upstream's fixed 'sincos' encoding as a BUFFER,
+        # not a Parameter, so it carries no gradient at all and that path is shut.
+        # Comparing the two is the defence experiment.
+        self.learn_pe = learn_pe
+        if learn_pe:
+            # upstream positional_encoding(pe='zeros', learn_pe=True, ...)
+            W_pos = torch.empty(patch_num, d_model)
+            nn.init.uniform_(W_pos, -0.02, 0.02)
+            self.W_pos = nn.Parameter(W_pos, requires_grad=True)
+        else:
+            # upstream positional_encoding(pe='sincos', learn_pe=False, ...),
+            # including its centre-and-scale normalisation.
+            pos = torch.arange(patch_num).unsqueeze(1).float()
+            div = torch.exp(torch.arange(0, d_model, 2).float()
+                            * -(math.log(10000.0) / d_model))
+            W_pos = torch.zeros(patch_num, d_model)
+            W_pos[:, 0::2] = torch.sin(pos * div)
+            W_pos[:, 1::2] = torch.cos(pos * div)
+            W_pos = W_pos - W_pos.mean()
+            W_pos = W_pos / (W_pos.std() * 10)
+            self.register_buffer("W_pos", W_pos)
         self.dropout = nn.Dropout(dropout)
 
         self.encoder = _TSTEncoder(d_model, n_heads, d_ff, dropout, activation, e_layers)
@@ -210,8 +240,10 @@ class PatchTST_Predictor(nn.Module):
         self.head = nn.Linear(d_model * patch_num, output_size)
         self.head_dropout = nn.Dropout(0.0)
 
-        self.name = f"PatchTST-P{patch_len}S{stride}-d{d_model}_Predictor"
+        self.name = (f"PatchTST-P{patch_len}S{stride}-d{d_model}"
+                     f"{'' if learn_pe else '-fixedpe'}_Predictor")
         self.extra_info = {
+            "learn_pe": learn_pe,
             "patch_len": patch_len,
             "patch_stride": stride,
             "patch_num": patch_num,
